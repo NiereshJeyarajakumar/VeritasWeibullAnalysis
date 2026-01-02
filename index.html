@@ -679,6 +679,26 @@ document.addEventListener("DOMContentLoaded", () => {
   showPanel("pdf");
 });
 </script>
+<script>
+  function sendHeight() {
+    const height = document.documentElement.scrollHeight;
+    parent.postMessage({ height: height }, "*");
+  }
 
+  // Send height on load
+  window.addEventListener("load", sendHeight);
+
+  // Send height on resize
+  window.addEventListener("resize", sendHeight);
+
+  // Send height when DOM changes (charts, toggles, results)
+  const observer = new MutationObserver(sendHeight);
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true
+  });
+</script>
 </body>
 </html>
+
