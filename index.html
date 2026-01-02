@@ -5,15 +5,15 @@
 <title>Weibull Analysis Tool</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Use UMD build explicitly (more reliable in WP environments) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <style>
 *, *::before, *::after { box-sizing: border-box; }
 
 body{
   font-family: Arial, system-ui, sans-serif;
-  max-width: 980px;
-  margin: 30px auto;
+  margin: 20px;
   background:#ffffff;
   color:#000;
 }
@@ -42,19 +42,17 @@ label{
 }
 
 textarea{
-  box-sizing:border-box;
   width:100%;
   min-height:90px;
-  border:1px solid #d0d0d0;
-  border-radius:8px;
   padding:10px 12px;
+  border-radius:8px;
+  border:1px solid #d0d0d0;
   background:#fff;
   color:#000;
   font-family:inherit;
 }
 
 input[type="number"]{
-  width:100%;
   padding:10px 12px;
   border-radius:8px;
   border:1px solid #d0d0d0;
@@ -62,7 +60,7 @@ input[type="number"]{
   font-family:inherit;
 }
 
-/* ===== Buttons (same format as critical spares) ===== */
+/* ===== Buttons ===== */
 button{
   padding:10px 16px;
   font-weight:700;
@@ -77,12 +75,12 @@ button:hover{ opacity:.9; }
 .actions{
   display:flex;
   gap:10px;
-  align-items:center;
   flex-wrap:wrap;
+  align-items:center;
   margin-top:12px;
 }
 
-#msg{ margin-left:8px; color:#000; }
+#msg{ margin-left:8px; }
 
 /* ===== Tabs ===== */
 .tabs{
@@ -112,22 +110,20 @@ button:hover{ opacity:.9; }
   width:100%;
   border-collapse:collapse;
   margin-top:10px;
-  table-layout:fixed;
 }
+
 #out th,#out td{
-  text-align:left;
   padding:8px 10px;
   border-bottom:1px solid #ddd;
-  width:50%;
-  word-wrap:break-word;
+  text-align:left;
 }
+
 #out th{
   background:#fff;
-  color:#000;
   font-weight:700;
 }
 
-/* ===== Plot titles / canvases ===== */
+/* ===== Chart panels ===== */
 .plot-title{
   font-weight:700;
   margin:10px 0 6px;
@@ -142,19 +138,14 @@ canvas{
   width:100%;
 }
 
-/* Hide all panels by default; JS shows active */
-.panel{
-  display:none;
-}
-.panel.active{
-  display:block;
-}
+.panel{ display:none; }
+.panel.active{ display:block; }
 </style>
 </head>
 
 <body>
 
-<!-- ===================== DATA ENTRY ===================== -->
+<!-- ================= DATA ENTRY ================= -->
 <div class="card">
   <h3>Data Entry</h3>
 
@@ -181,7 +172,7 @@ canvas{
   </div>
 </div>
 
-<!-- ===================== RESULTS ===================== -->
+<!-- ================= RESULTS ================= -->
 <div class="card">
   <h3>Results</h3>
   <div id="out">
@@ -199,27 +190,26 @@ canvas{
   </div>
 </div>
 
-<!-- ===================== RELIABILITY ===================== -->
+<!-- ================= RELIABILITY ================= -->
 <div class="card">
   <h3>Reliability at Specific Time</h3>
-  <label>Enter time:</label>
-  <div class="actions" style="margin-top:0">
-    <input type="number" id="timeInput" style="max-width:220px">
+  <div class="actions">
+    <input type="number" id="timeInput" placeholder="Time" style="max-width:220px;">
     <button id="calcRel" type="button">Calculate Reliability</button>
   </div>
   <div id="relOut" style="margin-top:10px;font-weight:600"></div>
 </div>
 
-<!-- ===================== PLOTS ===================== -->
+<!-- ================= PLOTS ================= -->
 <div class="card">
   <h3>Plots</h3>
 
   <div class="tabs">
-    <button data-target="pdf" class="active" type="button">PDF</button>
-    <button data-target="cdf" type="button">CDF</button>
-    <button data-target="rel" type="button">Reliability</button>
-    <button data-target="haz" type="button">Hazard</button>
-    <button data-target="weibplot" type="button">Weibull Probability Plot</button>
+    <button type="button" data-target="pdf" class="active">PDF</button>
+    <button type="button" data-target="cdf">CDF</button>
+    <button type="button" data-target="rel">Reliability</button>
+    <button type="button" data-target="haz">Hazard</button>
+    <button type="button" data-target="weibplot">Weibull Probability Plot</button>
   </div>
 
   <div id="panel-pdf" class="panel active">
@@ -253,286 +243,387 @@ canvas{
 </div>
 
 <script>
-/* JS FULLY UNCHANGED EXCEPT tmax LOGIC BELOW + panel toggle wrapper */
-
-const byId=id=>document.getElementById(id);
-const parseNums=s=>(s||"").split(/[\s,]+/).map(Number).filter(v=>isFinite(v)&&v>0).sort((a,b)=>a-b);
-const Fm=n=>Array.from({length:n},(_,i)=>(i+1-0.3)/(n+0.4));
-const FtoY=F=>Math.log(-Math.log(1-F));
-
-function destroyChart(id){const c=byId(id),ex=Chart.getChart(c);if(ex)ex.destroy();}
-
-function kaplanMeier(f,c){
-  const events=f.map(t=>({t,e:1}));
-  const cens=(c?.length?c:[]).map(t=>({t,e:0}));
-  const data=events.concat(cens).sort((a,b)=>a.t-b.t);
-  let n=data.length,R=1;const kmX=[0],kmY=[1];
-  let i=0;while(i<data.length){
-    const t=data[i].t;let d=0,w=0;
-    while(i<data.length && data[i].t===t){data[i].e?d++:w++;i++;}
-    if(n>0)R*=1-d/n;kmX.push(t);kmY.push(R);n-=d+w;
-  }return{kmX,kmY};
-}
-
-function gamma(x){
-  let g=7,p=[0.99999999999980993,676.5203681218851,-1259.1392167224028,
-  771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,
-  9.9843695780195716e-6,1.5056327351493116e-7];
-  if(x<0.5)return Math.PI/Math.sin(Math.PI*x)/gamma(1-x);
-  x-=1;let a=p[0],t=x+g+0.5;
-  for(let i=1;i<g+2;i++)a+=p[i]/(x+i);
-  return Math.sqrt(2*Math.PI)*Math.pow(t,x+0.5)*Math.exp(-t)*a;
-}
-
-function linReg(X,Y){
-  let sx=0,sy=0,sxx=0,sxy=0,n=X.length;
-  for(let i=0;i<n;i++){sx+=X[i];sy+=Y[i];sxx+=X[i]*X[i];sxy+=X[i]*Y[i];}
-  const b=(n*sxy-sx*sy)/(n*sxx-sx*sx),a=(sy-b*sx)/n;return{a,b};
-}
-
-function rrY(f){const n=f.length,F=Fm(n);
-  const X=f.map(t=>Math.log(t)),Y=F.map(FtoY);
-  const {a,b}=linReg(X,Y);return{m:"Rank Regression on Y",a,b,beta:b,eta:Math.exp(-a/b)};}
-
-function rrX(f){const n=f.length,F=Fm(n);
-  const X=F.map(FtoY),Y=f.map(t=>Math.log(t));
-  const {a,b}=linReg(X,Y);return{m:"Rank Regression on X",a,b,beta:1/b,eta:Math.exp(a)};}
-
-function andersonDarlingWeibull(f,beta,eta){
-  const n=f.length;if(n<2)return NaN;
-  const z=f.map(t=>1-Math.exp(-Math.pow(t/eta,beta))).sort((a,b)=>a-b);
-  let sum=0;for(let i=0;i<n;i++){sum+=(2*(i+1)-1)*(Math.log(z[i])+Math.log(1-z[n-i-1]));}
-  const A2=-n-sum/n;return A2*(1+0.6/n);
-}
-
-function mle(f,c){
-  const r=f.length,all=f.concat(c||[]),sumLn=f.reduce((s,t)=>s+Math.log(t),0);
-  function sums(b){let C=0,B=0,B2=0,C1=0;
-    for(const t of all){const lt=Math.log(t),tb=t**b;C+=tb;B+=tb*lt;B2+=tb*lt*lt;C1+=tb*lt;}
-    return{C,B,B2,C1};
+document.addEventListener("DOMContentLoaded", () => {
+  // ---- safety check for Chart.js ----
+  if (typeof Chart === "undefined") {
+    const msg = document.getElementById("msg");
+    if (msg) msg.textContent = "⚠ Chart.js failed to load. Check CDN access.";
+    return;
   }
-  function g(b){const{C,B}=sums(b);return r/b+sumLn-r*(B/C);}
-  function g1(b){const{C,B,B2,C1}=sums(b);return -r/(b*b)-r*((B2*C-B*C1)/(C*C));}
-  let b0=rrY(f).beta;
-  for(let i=0;i<80;i++){const gb=g(b0),gp=g1(b0);if(!isFinite(gb)||!isFinite(gp)||gp===0)break;
-    const next=b0-gb/gp;if(Math.abs(next-b0)<1e-8*Math.max(1,b0)){b0=next;break;}
-    b0=Math.min(Math.max(next,0.1),50);
+
+  const byId = id => document.getElementById(id);
+  const parseNums = s => (s||"")
+    .split(/[\s,]+/)
+    .map(Number)
+    .filter(v => isFinite(v) && v > 0)
+    .sort((a,b)=>a-b);
+
+  const Fm = n => Array.from({length:n},(_,i)=>(i+1-0.3)/(n+0.4));
+  const FtoY = F => Math.log(-Math.log(1-F));
+
+  function destroyChart(id){
+    const c = byId(id);
+    const ex = c ? Chart.getChart(c) : null;
+    if (ex) ex.destroy();
   }
-  const C=all.reduce((s,t)=>s+t**b0,0),eta=(C/r)**(1/b0);
-  return{m:"Maximum Likelihood Estimation",beta:b0,eta};
-}
 
-let charts={},lastParams=null;
-const panels=["pdf","cdf","rel","haz","weibplot"];
-
-/* --- panel toggling (fix) --- */
-function showPanel(id){
-  panels.forEach(p=>{
-    const panelEl = byId(`panel-${p}`);
-    if(panelEl) panelEl.classList.toggle("active", p===id);
-    const tabBtn = document.querySelector(`.tabs button[data-target="${p}"]`);
-    if(tabBtn) tabBtn.classList.toggle("active", p===id);
-    if(charts[p] && p===id){ charts[p].resize(); charts[p].update(); }
-  });
-}
-
-function initBlankCharts(){
-  const blank={type:"line",data:{datasets:[]},
-    options:{responsive:true,parsing:false,
-      plugins:{legend:{display:false}},
-      scales:{x:{title:{display:true,text:"Time"}},
-              y:{title:{display:true,text:"Value"}}}}};
-
-  charts.pdf=new Chart(byId("pdf"), JSON.parse(JSON.stringify(blank)));
-  charts.cdf=new Chart(byId("cdf"), JSON.parse(JSON.stringify(blank)));
-  charts.rel=new Chart(byId("rel"), JSON.parse(JSON.stringify(blank)));
-  charts.haz=new Chart(byId("haz"), JSON.parse(JSON.stringify(blank)));
-
-  charts.weibplot=new Chart(byId("weibplot"),{
-    type:"scatter",
-    data:{datasets:[]},
-    options:{responsive:true,parsing:false,plugins:{legend:{display:false}}},
-    scales:{
-      x:{type:"logarithmic",title:{display:true,text:"Time (log scale)"},grid:{color:"#ddd"}},
-      y:{title:{display:true,text:"Unreliability F(t) (%)"}}
+  function kaplanMeier(f,c){
+    const events=f.map(t=>({t,e:1}));
+    const cens=(c?.length?c:[]).map(t=>({t,e:0}));
+    const data=events.concat(cens).sort((a,b)=>a.t-b.t);
+    let n=data.length,R=1; const kmX=[0],kmY=[1];
+    let i=0;
+    while(i<data.length){
+      const t=data[i].t; let d=0,w=0;
+      while(i<data.length && data[i].t===t){ data[i].e?d++:w++; i++; }
+      if(n>0) R*=1-d/n;
+      kmX.push(t); kmY.push(R);
+      n-=d+w;
     }
-  });
-}
+    return {kmX,kmY};
+  }
 
-function drawLine(id,label,x,y,color="#000"){
-  destroyChart(id);
-  charts[id]=new Chart(byId(id),{
-    type:"line",
-    data:{datasets:[{data:x.map((t,i)=>({x:t,y:y[i]})),borderColor:color,borderWidth:2,fill:false,tension:.1}]},
-    options:{responsive:true,parsing:false,plugins:{legend:{display:false}}},
-  });
-  charts[id].options.scales = {
-    x:{type:"linear",title:{display:true,text:"Time"}},
-    y:{title:{display:true,text:label}}
-  };
-  charts[id].update();
-}
+  function gamma(x){
+    let g=7,p=[0.99999999999980993,676.5203681218851,-1259.1392167224028,
+    771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,
+    9.9843695780195716e-6,1.5056327351493116e-7];
+    if(x<0.5) return Math.PI/Math.sin(Math.PI*x)/gamma(1-x);
+    x-=1; let a=p[0],t=x+g+0.5;
+    for(let i=1;i<g+2;i++) a+=p[i]/(x+i);
+    return Math.sqrt(2*Math.PI)*Math.pow(t,x+0.5)*Math.exp(-t)*a;
+  }
 
-function weibullProbabilityPlot(f,a,b,beta,eta){
-  const n=f.length,F=Fm(n);
-  const pts=f.map((t,i)=>({x:t,y:FtoY(F[i])}));
+  function linReg(X,Y){
+    let sx=0,sy=0,sxx=0,sxy=0,n=X.length;
+    for(let i=0;i<n;i++){ sx+=X[i]; sy+=Y[i]; sxx+=X[i]*X[i]; sxy+=X[i]*Y[i]; }
+    const b=(n*sxy-sx*sy)/(n*sxx-sx*sx);
+    const a=(sy-b*sx)/n;
+    return {a,b};
+  }
 
-  const line=[],tmin=eta*Math.pow(-Math.log(1-0.001),1/beta),
-        tmax=eta*Math.pow(-Math.log(1-0.9999),1/beta);
-  for(let t=tmin;t<=tmax;t*=1.02)line.push({x:t,y:a+b*Math.log(t)});
-  const etaLine=[{x:eta,y:FtoY(0.05)},{x:eta,y:FtoY(0.99)}];
+  function rrY(f){
+    const n=f.length,F=Fm(n);
+    const X=f.map(t=>Math.log(t)),Y=F.map(FtoY);
+    const {a,b}=linReg(X,Y);
+    return {m:"Rank Regression on Y", a, b, beta:b, eta:Math.exp(-a/b)};
+  }
 
-  const Fy=[0.05,0.10,0.20,0.30,0.40,0.50,0.60,0.70,0.80,0.90,0.95,0.99];
-  const Yticks=Fy.map(v=>({value:FtoY(v),label:(v*100).toFixed(0)}));
+  function rrX(f){
+    const n=f.length,F=Fm(n);
+    const X=F.map(FtoY),Y=f.map(t=>Math.log(t));
+    const {a,b}=linReg(X,Y);
+    return {m:"Rank Regression on X", a, b, beta:1/b, eta:Math.exp(a)};
+  }
 
-  destroyChart("weibplot");
-  charts.weibplot=new Chart(byId("weibplot"),{
-    type:"scatter",
-    data:{datasets:[
-      {data:pts,backgroundColor:"#000"},
-      {data:line,type:"line",borderColor:"#2b6cb0",borderWidth:2,pointRadius:0},
-      {data:etaLine,type:"line",borderColor:"#C2965B",borderWidth:2,borderDash:[6,6],pointRadius:0}
-    ]},
-    options:{responsive:true,parsing:false,plugins:{legend:{display:false}},
-      scales:{
-        x:{type:"logarithmic",title:{display:true,text:"Time (log scale)"},grid:{color:"#ddd"}},
-        y:{title:{display:true,text:"Unreliability F(t) (%)"},
-           min:FtoY(0.05),max:FtoY(0.99),
-           afterBuildTicks:(axis)=>{axis.ticks=Yticks.map(t=>({value:t.value,label:t.label}))},
-           ticks:{callback:(v)=>{const t=Yticks.find(tt=>Math.abs(tt.value-v)<0.05);return t?t.label:"";}}
-        }
+  function andersonDarlingWeibull(f,beta,eta){
+    const n=f.length; if(n<2) return NaN;
+    const z=f.map(t=>1-Math.exp(-Math.pow(t/eta,beta))).sort((a,b)=>a-b);
+    let sum=0;
+    for(let i=0;i<n;i++){
+      sum += (2*(i+1)-1) * (Math.log(z[i]) + Math.log(1-z[n-i-1]));
+    }
+    const A2 = -n - sum/n;
+    return A2*(1+0.6/n);
+  }
+
+  function mle(f,c){
+    const r=f.length, all=f.concat(c||[]), sumLn=f.reduce((s,t)=>s+Math.log(t),0);
+    function sums(b){
+      let C=0,B=0,B2=0,C1=0;
+      for(const t of all){
+        const lt=Math.log(t), tb=t**b;
+        C+=tb; B+=tb*lt; B2+=tb*lt*lt; C1+=tb*lt;
       }
+      return {C,B,B2,C1};
     }
-  });
-}
+    function g(b){ const {C,B}=sums(b); return r/b + sumLn - r*(B/C); }
+    function g1(b){ const {C,B,B2,C1}=sums(b); return -r/(b*b) - r*((B2*C - B*C1)/(C*C)); }
 
-function run(){
-  try{
-    const f=parseNums(byId("fail").value),c=parseNums(byId("susp").value);
-    const m=document.querySelector('input[name="m"]:checked').value;
-    if((m==="rroy"||m==="rrox")&&f.length<2)throw"≥2 failures needed";
-    if(m==="mle"&&f.length<1)throw"≥1 failure needed";
-
-    const r=(m==="rroy")?rrY(f):(m==="rrox")?rrX(f):mle(f,c);
-    const {beta,eta}=r;
-
-    /* Updated x-axis max: 99.9th percentile */
-    const t99 = eta * Math.pow(-Math.log(1 - 0.999), 1 / beta);
-    const tmax = t99 > 0 ? t99 : 1;
-
-    let X=[],pdf=[],cdf=[],rel=[],haz=[];
-    for(let i=0;i<200;i++){
-      const t=tmax*i*i/(199**2),z=(t/eta)**beta,R=Math.exp(-z),f1=(beta/eta)*(t/eta)**(beta-1)*R;
-      X.push(t);pdf.push(f1);cdf.push(1-R);rel.push(R);haz.push(f1/R);
+    let b0 = rrY(f).beta;
+    for(let i=0;i<80;i++){
+      const gb=g(b0), gp=g1(b0);
+      if(!isFinite(gb)||!isFinite(gp)||gp===0) break;
+      const next=b0-gb/gp;
+      if(Math.abs(next-b0)<1e-8*Math.max(1,b0)){ b0=next; break; }
+      b0=Math.min(Math.max(next,0.1),50);
     }
+    const C = all.reduce((s,t)=>s+t**b0,0);
+    const eta=(C/r)**(1/b0);
+    return {m:"Maximum Likelihood Estimation", beta:b0, eta};
+  }
 
-    drawLine("pdf","PDF",X,pdf);
-    drawLine("cdf","CDF",X,cdf);
+  let charts = {};
+  let lastParams = null;
+  const panels = ["pdf","cdf","rel","haz","weibplot"];
 
-    const kmOn=byId("kmToggle").checked;
-    let datasets=[{
-      data:X.map((t,i)=>({x:t,y:rel[i]})),
-      label:"Weibull",
-      borderColor:"#000",
-      backgroundColor:"#000",
-      borderWidth:2,
-      fill:false,
-      tension:.1
-    }];
+  function showPanel(id){
+    panels.forEach(p=>{
+      const panelEl = byId(`panel-${p}`);
+      if(panelEl) panelEl.classList.toggle("active", p===id);
+      const tabBtn = document.querySelector(`.tabs button[data-target="${p}"]`);
+      if(tabBtn) tabBtn.classList.toggle("active", p===id);
+      if(charts[p] && p===id){ charts[p].resize(); charts[p].update(); }
+    });
+  }
 
-    if(kmOn){
-      const {kmX,kmY}=kaplanMeier(f,c);
-      datasets.push({
-        data:kmX.map((t,i)=>({x:t,y:kmY[i]})),
-        label:"Kaplan–Meier",
-        borderColor:"#C2965B",
-        backgroundColor:"#C2965B",
-        borderWidth:2,
-        fill:false
-      });
-    }
-
-    destroyChart("rel");
-    charts.rel=new Chart(byId("rel"),{
+  function initBlankCharts(){
+    const blankLine = {
       type:"line",
-      data:{datasets},
+      data:{datasets:[]},
       options:{
         responsive:true,
         parsing:false,
-        plugins:{
-          legend:{
-            display:true,
-            labels:{usePointStyle:true,pointStyle:'rect'}
-          }
-        },
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{title:{display:true,text:"Time"}},
+          y:{title:{display:true,text:"Value"}}
+        }
+      }
+    };
+
+    charts.pdf = new Chart(byId("pdf"), JSON.parse(JSON.stringify(blankLine)));
+    charts.cdf = new Chart(byId("cdf"), JSON.parse(JSON.stringify(blankLine)));
+    charts.rel = new Chart(byId("rel"), JSON.parse(JSON.stringify(blankLine)));
+    charts.haz = new Chart(byId("haz"), JSON.parse(JSON.stringify(blankLine)));
+
+    charts.weibplot = new Chart(byId("weibplot"),{
+      type:"scatter",
+      data:{datasets:[]},
+      options:{responsive:true,parsing:false,plugins:{legend:{display:false}}},
+      scales:{
+        x:{type:"logarithmic",title:{display:true,text:"Time (log scale)"},grid:{color:"#ddd"}},
+        y:{title:{display:true,text:"Unreliability F(t) (%)"}}
+      }
+    });
+  }
+
+  function drawLine(id,label,x,y,color="#000"){
+    destroyChart(id);
+    charts[id] = new Chart(byId(id),{
+      type:"line",
+      data:{datasets:[{
+        data:x.map((t,i)=>({x:t,y:y[i]})),
+        borderColor:color,
+        borderWidth:2,
+        fill:false,
+        tension:.1,
+        pointRadius:0
+      }]},
+      options:{
+        responsive:true,
+        parsing:false,
+        plugins:{legend:{display:false}},
         scales:{
           x:{type:"linear",title:{display:true,text:"Time"}},
-          y:{title:{display:true,text:"Reliability"},min:0,max:1}
+          y:{title:{display:true,text:label}}
         }
       }
     });
+  }
 
-    drawLine("haz","Hazard",X,haz);
-    weibullProbabilityPlot(f,-beta*Math.log(eta),beta,beta,eta);
+  function weibullProbabilityPlot(f,a,b,beta,eta){
+    const n=f.length,F=Fm(n);
+    const pts=f.map((t,i)=>({x:t,y:FtoY(F[i])}));
 
-    const mttf=eta*gamma(1+1/beta),ad=andersonDarlingWeibull(f,beta,eta);
-    const fit=isNaN(ad)?"N/A":(ad<0.3?"Excellent":ad<0.6?"Good":ad<1?"Moderate":"Poor");
-    const vals=[r.m,beta.toFixed(6),eta.toFixed(6),mttf.toFixed(6),isNaN(ad)?"N/A":ad.toFixed(4),fit];
+    const line=[];
+    const tmin=eta*Math.pow(-Math.log(1-0.001),1/beta);
+    const tmax=eta*Math.pow(-Math.log(1-0.9999),1/beta);
+    for(let t=tmin;t<=tmax;t*=1.02) line.push({x:t,y:a+b*Math.log(t)});
 
-    byId("out").querySelectorAll("tbody td:nth-child(2)").forEach((c,i)=>{ c.textContent=vals[i]; });
-    lastParams={beta,eta};
+    const etaLine=[{x:eta,y:FtoY(0.05)},{x:eta,y:FtoY(0.99)}];
+
+    const Fy=[0.05,0.10,0.20,0.30,0.40,0.50,0.60,0.70,0.80,0.90,0.95,0.99];
+    const Yticks=Fy.map(v=>({value:FtoY(v),label:(v*100).toFixed(0)}));
+
+    destroyChart("weibplot");
+    charts.weibplot = new Chart(byId("weibplot"),{
+      type:"scatter",
+      data:{datasets:[
+        {label:"Data",data:pts,backgroundColor:"#000",pointRadius:3},
+        {label:"Fit",data:line,type:"line",borderColor:"#2b6cb0",borderWidth:2,pointRadius:0},
+        {label:"η",data:etaLine,type:"line",borderColor:"#C2965B",borderWidth:2,borderDash:[6,6],pointRadius:0}
+      ]},
+      options:{
+        responsive:true,
+        parsing:false,
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{type:"logarithmic",title:{display:true,text:"Time (log scale)"},grid:{color:"#ddd"}},
+          y:{
+            title:{display:true,text:"Unreliability F(t) (%)"},
+            min:FtoY(0.05),
+            max:FtoY(0.99),
+            afterBuildTicks:(axis)=>{ axis.ticks = Yticks.map(t=>({value:t.value,label:t.label})); },
+            ticks:{ callback:(v)=>{
+              const t=Yticks.find(tt=>Math.abs(tt.value-v)<0.05);
+              return t?t.label:"";
+            }}
+          }
+        }
+      }
+    });
+  }
+
+  function run(){
+    try{
+      const f=parseNums(byId("fail").value);
+      const c=parseNums(byId("susp").value);
+      const m=document.querySelector('input[name="m"]:checked')?.value;
+
+      if(!m) throw "Select a method.";
+      if((m==="rroy"||m==="rrox") && f.length<2) throw "≥2 failures needed";
+      if(m==="mle" && f.length<1) throw "≥1 failure needed";
+
+      const r=(m==="rroy")?rrY(f):(m==="rrox")?rrX(f):mle(f,c);
+      const {beta,eta} = r;
+
+      // Updated x-axis max: 99.9th percentile
+      const t99 = eta * Math.pow(-Math.log(1 - 0.999), 1 / beta);
+      const tmax = (t99>0 && isFinite(t99)) ? t99 : 1;
+
+      let X=[],pdf=[],cdf=[],rel=[],haz=[];
+      for(let i=0;i<200;i++){
+        const t=tmax*i*i/(199**2);
+        const z=(t/eta)**beta;
+        const R=Math.exp(-z);
+        const f1=(beta/eta)*(t/eta)**(beta-1)*R;
+        X.push(t);
+        pdf.push(f1);
+        cdf.push(1-R);
+        rel.push(R);
+        haz.push(f1/R);
+      }
+
+      drawLine("pdf","PDF",X,pdf);
+      drawLine("cdf","CDF",X,cdf);
+
+      const kmOn=byId("kmToggle").checked;
+      let datasets=[{
+        data:X.map((t,i)=>({x:t,y:rel[i]})),
+        label:"Weibull",
+        borderColor:"#000",
+        backgroundColor:"#000",
+        borderWidth:2,
+        fill:false,
+        tension:.1,
+        pointRadius:0
+      }];
+
+      if(kmOn){
+        const {kmX,kmY}=kaplanMeier(f,c);
+        datasets.push({
+          data:kmX.map((t,i)=>({x:t,y:kmY[i]})),
+          label:"Kaplan–Meier",
+          borderColor:"#C2965B",
+          backgroundColor:"#C2965B",
+          borderWidth:2,
+          fill:false,
+          pointRadius:0
+        });
+      }
+
+      destroyChart("rel");
+      charts.rel = new Chart(byId("rel"),{
+        type:"line",
+        data:{datasets},
+        options:{
+          responsive:true,
+          parsing:false,
+          plugins:{
+            legend:{
+              display:true,
+              labels:{usePointStyle:true,pointStyle:'rect'}
+            }
+          },
+          scales:{
+            x:{type:"linear",title:{display:true,text:"Time"}},
+            y:{title:{display:true,text:"Reliability"},min:0,max:1}
+          }
+        }
+      });
+
+      drawLine("haz","Hazard",X,haz);
+      weibullProbabilityPlot(f,-beta*Math.log(eta),beta,beta,eta);
+
+      const mttf = eta * gamma(1+1/beta);
+      const ad = andersonDarlingWeibull(f,beta,eta);
+      const fit = isNaN(ad) ? "N/A" : (ad<0.3?"Excellent":ad<0.6?"Good":ad<1?"Moderate":"Poor");
+
+      const vals=[
+        r.m,
+        beta.toFixed(6),
+        eta.toFixed(6),
+        mttf.toFixed(6),
+        isNaN(ad) ? "N/A" : ad.toFixed(4),
+        fit
+      ];
+
+      byId("out").querySelectorAll("tbody td:nth-child(2)").forEach((cell,i)=>{
+        cell.textContent = vals[i] ?? "";
+      });
+
+      lastParams = {beta, eta};
+
+      byId("msg").textContent = "";
+      byId("relOut").textContent = "";
+
+      const active = document.querySelector(".tabs button.active")?.dataset.target || "pdf";
+      showPanel(active);
+
+    }catch(e){
+      byId("msg").textContent = "⚠ " + e;
+    }
+  }
+
+  function calcReliability(){
+    if(!lastParams){
+      byId("relOut").textContent="⚠ Calculate parameters first.";
+      return;
+    }
+    const t = parseFloat(byId("timeInput").value);
+    if(!isFinite(t) || t<=0){
+      byId("relOut").textContent="⚠ Enter valid time.";
+      return;
+    }
+    const R = Math.exp(-Math.pow(t/lastParams.eta,lastParams.beta));
+    byId("relOut").innerHTML = `Reliability at <b>${t}</b> = <b>${(R*100).toFixed(2)}%</b>`;
+  }
+
+  function clearAll(){
+    byId("fail").value="";
+    byId("susp").value="";
+    Object.keys(charts).forEach(id=>destroyChart(id));
+    byId("out").querySelectorAll("tbody td:nth-child(2)").forEach(c=>{ c.textContent=""; });
     byId("msg").textContent="";
     byId("relOut").textContent="";
-
-    const active = document.querySelector(".tabs button.active")?.dataset.target || "pdf";
-    showPanel(active);
-
-  }catch(e){
-    byId("msg").textContent="⚠ "+e;
+    lastParams=null;
+    initBlankCharts();
+    showPanel("pdf");
   }
-}
 
-function calcReliability(){
-  if(!lastParams){byId("relOut").textContent="⚠ Calculate parameters first.";return;}
-  const t=parseFloat(byId("timeInput").value);
-  if(!isFinite(t)||t<=0){byId("relOut").textContent="⚠ Enter valid time.";return;}
-  const R=Math.exp(-Math.pow(t/lastParams.eta,lastParams.beta));
-  byId("relOut").innerHTML=`Reliability at <b>${t}</b> = <b>${(R*100).toFixed(2)}%</b>`;
-}
+  // ---- Bindings ----
+  byId("run").addEventListener("click", run);
+  byId("clearData").addEventListener("click", clearAll);
+  byId("calcRel").addEventListener("click", calcReliability);
 
-function clearAll(){
-  byId("fail").value="";
-  byId("susp").value="";
-  Object.keys(charts).forEach(id=>destroyChart(id));
-  byId("out").querySelectorAll("tbody td:nth-child(2)").forEach(c=>{ c.textContent=""; });
-  byId("msg").textContent="";
-  byId("relOut").textContent="";
+  document.querySelectorAll(".tabs button").forEach(btn=>{
+    btn.addEventListener("click", ()=> showPanel(btn.dataset.target));
+  });
+
+  byId("exportBtn").addEventListener("click", () => {
+    const active = document.querySelector(".tabs button.active")?.dataset.target;
+    if(!active || !charts[active]) return alert("No active chart");
+    const link = document.createElement("a");
+    link.download = active + "_plot.png";
+    link.href = charts[active].toBase64Image();
+    link.click();
+  });
+
+  // ---- Initialise ----
   initBlankCharts();
   showPanel("pdf");
-}
-
-byId("run").addEventListener("click",run);
-byId("calcRel").addEventListener("click",calcReliability);
-byId("clearData").addEventListener("click",clearAll);
-
-document.querySelectorAll(".tabs button").forEach(btn=>{
-  btn.addEventListener("click",()=>showPanel(btn.dataset.target));
 });
-
-document.getElementById("exportBtn").addEventListener("click", () => {
-  const active = document.querySelector(".tabs button.active")?.dataset.target;
-  if (!active || !charts[active]) return alert("No active chart");
-  const link = document.createElement("a");
-  link.download = active + "_plot.png";
-  link.href = charts[active].toBase64Image();
-  link.click();
-});
-
-initBlankCharts();
-showPanel("pdf");
 </script>
 
 </body>
 </html>
-
-
