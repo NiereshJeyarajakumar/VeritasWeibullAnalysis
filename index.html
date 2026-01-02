@@ -131,11 +131,22 @@ button:hover{ opacity:.9; }
   font-size:15px;
 }
 
+/* 🔒 FIXED HEIGHT WRAPPER (1000px) */
+.chart-wrap{
+  height:1000px;
+  width:100%;
+  position:relative;
+}
+
+/* 🔒 FORCE CANVAS TO FILL WRAPPER (fixes tiny chart in WP) */
 canvas{
   background:#fff;
   border:1px solid #e2e2e2;
   border-radius:10px;
-  width:100%;
+
+  display:block !important;
+  width:100% !important;
+  height:100% !important;
 }
 
 .panel{ display:none; }
@@ -214,27 +225,27 @@ canvas{
 
   <div id="panel-pdf" class="panel active">
     <div class="plot-title" id="pdf-title">Probability Density Function</div>
-    <canvas id="pdf" height="260"></canvas>
+    <div class="chart-wrap"><canvas id="pdf"></canvas></div>
   </div>
 
   <div id="panel-cdf" class="panel">
     <div class="plot-title" id="cdf-title">Cumulative Distribution Function</div>
-    <canvas id="cdf" height="260"></canvas>
+    <div class="chart-wrap"><canvas id="cdf"></canvas></div>
   </div>
 
   <div id="panel-rel" class="panel">
     <div class="plot-title" id="rel-title">Reliability Function</div>
-    <canvas id="rel" height="260"></canvas>
+    <div class="chart-wrap"><canvas id="rel"></canvas></div>
   </div>
 
   <div id="panel-haz" class="panel">
     <div class="plot-title" id="haz-title">Hazard Rate Function</div>
-    <canvas id="haz" height="260"></canvas>
+    <div class="chart-wrap"><canvas id="haz"></canvas></div>
   </div>
 
   <div id="panel-weibplot" class="panel">
     <div class="plot-title" id="weibplot-title">Weibull Probability Plot</div>
-    <canvas id="weibplot" height="480"></canvas>
+    <div class="chart-wrap"><canvas id="weibplot"></canvas></div>
   </div>
 
   <div class="actions">
@@ -359,10 +370,20 @@ document.addEventListener("DOMContentLoaded", () => {
   function showPanel(id){
     panels.forEach(p=>{
       const panelEl = byId(`panel-${p}`);
-      if(panelEl) panelEl.classList.toggle("active", p===id);
+      const isActive = (p===id);
+
+      if(panelEl) panelEl.classList.toggle("active", isActive);
+
       const tabBtn = document.querySelector(`.tabs button[data-target="${p}"]`);
-      if(tabBtn) tabBtn.classList.toggle("active", p===id);
-      if(charts[p] && p===id){ charts[p].resize(); charts[p].update(); }
+      if(tabBtn) tabBtn.classList.toggle("active", isActive);
+
+      // 🔒 Resize AFTER the panel becomes visible (WP reflow safe)
+      if(isActive && charts[p]){
+        requestAnimationFrame(() => {
+          charts[p].resize();
+          charts[p].update();
+        });
+      }
     });
   }
 
@@ -372,6 +393,7 @@ document.addEventListener("DOMContentLoaded", () => {
       data:{datasets:[]},
       options:{
         responsive:true,
+        maintainAspectRatio:false,   // 🔒 IMPORTANT
         parsing:false,
         plugins:{legend:{display:false}},
         scales:{
@@ -389,7 +411,12 @@ document.addEventListener("DOMContentLoaded", () => {
     charts.weibplot = new Chart(byId("weibplot"),{
       type:"scatter",
       data:{datasets:[]},
-      options:{responsive:true,parsing:false,plugins:{legend:{display:false}}},
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,   // 🔒 IMPORTANT
+        parsing:false,
+        plugins:{legend:{display:false}}
+      },
       scales:{
         x:{type:"logarithmic",title:{display:true,text:"Time (log scale)"},grid:{color:"#ddd"}},
         y:{title:{display:true,text:"Unreliability F(t) (%)"}}
@@ -411,6 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }]},
       options:{
         responsive:true,
+        maintainAspectRatio:false,   // 🔒 IMPORTANT
         parsing:false,
         plugins:{legend:{display:false}},
         scales:{
@@ -445,6 +473,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ]},
       options:{
         responsive:true,
+        maintainAspectRatio:false,   // 🔒 IMPORTANT
         parsing:false,
         plugins:{legend:{display:false}},
         scales:{
@@ -528,6 +557,7 @@ document.addEventListener("DOMContentLoaded", () => {
         data:{datasets},
         options:{
           responsive:true,
+          maintainAspectRatio:false,   // 🔒 IMPORTANT
           parsing:false,
           plugins:{
             legend:{
